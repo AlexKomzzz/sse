@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+type CtxKey string
+
+var CtxIdSubscriber CtxKey = "IdSub"
+
 // ServeHTTP serves new connections with events for a given stream ...
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	flusher, err := w.(http.Flusher)
@@ -56,8 +60,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	idSubscriber, ok := r.Context().Value(CtxIdSubscriber).(string)
+	if !ok {
+		idSubscriber = fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+
 	// Create the stream subscriber
-	sub := stream.addSubscriber(eventid, r.URL)
+	sub := stream.addSubscriber(eventid, r.URL, idSubscriber)
 
 	go func() {
 		<-r.Context().Done()

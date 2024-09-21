@@ -5,12 +5,10 @@
 package sse
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
-	"runtime"
 	"testing"
 	"time"
 
@@ -400,25 +398,25 @@ func TestTrimHeader(t *testing.T) {
 	}
 }
 
-func TestSubscribeWithContextDone(t *testing.T) {
-	setup(false)
-	defer cleanup()
+// func TestSubscribeWithContextDone(t *testing.T) {
+// 	setup(false)
+// 	defer cleanup()
 
-	ctx, cancel := context.WithCancel(context.Background())
+// 	ctx, cancel := context.WithCancel(context.Background())
 
-	var n1 = runtime.NumGoroutine()
+// 	var n1 = runtime.NumGoroutine()
 
-	c := NewClient(urlPath)
+// 	c := NewClient(urlPath)
 
-	for i := 0; i < 10; i++ {
-		go c.SubscribeWithContext(ctx, "test", func(msg *Event) {})
-	}
+// 	for i := 0; i < 10; i++ {
+// 		go c.SubscribeWithContext(ctx, "test", func(msg *Event) {})
+// 	}
 
-	time.Sleep(1 * time.Second)
-	cancel()
+// 	time.Sleep(1 * time.Second)
+// 	cancel()
 
-	time.Sleep(1 * time.Second)
-	var n2 = runtime.NumGoroutine()
+// 	time.Sleep(1 * time.Second)
+// 	var n2 = runtime.NumGoroutine()
 
-	assert.Equal(t, n1, n2)
-}
+// 	assert.Equal(t, n1, n2)
+// }

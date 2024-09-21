@@ -140,6 +140,31 @@ func (s *Server) TryPublish(id string, event *Event) bool {
 	}
 }
 
+// PublishToOne sends a message to one client at streamID by its id .
+func (s *Server) PublishToOne(id, subscriberId string, event *Event) {
+	stream := s.getStream(id)
+	if stream == nil {
+		return
+	}
+
+	ch := make(chan struct{})
+
+	select {
+	case <-stream.quit:
+	default:
+	}
+
+	go func() {
+		stream.sendOne(subscriberId, s.process(event))
+		ch <- struct{}{}
+	}()
+
+	select {
+	case <-stream.quit:
+	case <-ch:
+	}
+}
+
 func (s *Server) getStream(id string) *Stream {
 	s.muStreams.RLock()
 	defer s.muStreams.RUnlock()

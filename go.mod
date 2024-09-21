@@ -1,4 +1,4 @@
-module github.com/AlexKomzzz/sse/v2
+module github.com/AlexKomzzz/sse
 
 go 1.22
 

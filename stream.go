@@ -6,6 +6,7 @@ package sse
 
 import (
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -18,7 +19,7 @@ type Stream struct {
 	quitOnce        sync.Once
 	register        chan *Subscriber
 	deregister      chan *Subscriber
-	subscribers     map[string]*Subscriber
+	subscribers     []*Subscriber
 	Eventlog        EventLog
 	subscriberCount int32
 	// Enables replaying of eventlog to newly added subscribers
@@ -35,7 +36,7 @@ func newStream(id string, buffSize int, replay, isAutoStream bool, onSubscribe, 
 	return &Stream{
 		ID:            id,
 		AutoReplay:    replay,
-		subscribers:   make(map[string]*Subscriber),
+		subscribers:   make([]*Subscriber, 0),
 		isAutoStream:  isAutoStream,
 		register:      make(chan *Subscriber),
 		deregister:    make(chan *Subscriber),
@@ -53,19 +54,16 @@ func (str *Stream) run() {
 			select {
 			// Add new subscriber
 			case subscriber := <-str.register:
-				if oldSubscriber, ok := str.subscribers[subscriber.Id]; ok {
-					str.removeSubscriber(oldSubscriber)
-				}
-				str.subscribers[subscriber.Id] = subscriber
-
+				str.subscribers = append(str.subscribers, subscriber)
 				if str.AutoReplay {
 					str.Eventlog.Replay(subscriber)
 				}
 
 			// Remove closed subscriber
 			case subscriber := <-str.deregister:
-				if _, ok := str.subscribers[subscriber.Id]; ok {
-					str.removeSubscriber(subscriber)
+				i := str.getSubIndex(subscriber)
+				if i != -1 {
+					str.removeSubscriber(i)
 				}
 
 				if str.OnUnsubscribe != nil {
@@ -77,8 +75,8 @@ func (str *Stream) run() {
 				if str.AutoReplay {
 					str.Eventlog.Add(event)
 				}
-				for _, subscriber := range str.subscribers {
-					subscriber.connection <- event
+				for i := range str.subscribers {
+					str.subscribers[i].connection <- event
 				}
 
 			// Shutdown if the server closes
@@ -91,24 +89,35 @@ func (str *Stream) run() {
 	}(str)
 }
 
-// Send individual message
-func (str *Stream) sendOne(subscriberId string, event *Event) {
-	if subscriber, ok := str.subscribers[subscriberId]; ok {
-		subscriber.connection <- event
-	}
-}
-
 func (str *Stream) close() {
 	str.quitOnce.Do(func() {
 		close(str.quit)
 	})
 }
 
+func (str *Stream) getSubIndex(sub *Subscriber) int {
+	for i := range str.subscribers {
+		if str.subscribers[i] == sub {
+			return i
+		}
+	}
+	return -1
+}
+
+func (str *Stream) sendOne(subscriberId string, event *Event) int {
+	for i, sub := range str.subscribers {
+		if strings.EqualFold(sub.Id, subscriberId) {
+			str.subscribers[i].connection <- event
+		}
+	}
+	return -1
+}
+
 // addSubscriber will create a new subscriber on a stream
-func (str *Stream) addSubscriber(eventid int, url *url.URL, idSubscriber string) *Subscriber {
+func (str *Stream) addSubscriber(eventid int, url *url.URL, subscriberId string) *Subscriber {
 	atomic.AddInt32(&str.subscriberCount, 1)
 	sub := &Subscriber{
-		Id:         idSubscriber,
+		Id:         subscriberId,
 		eventid:    eventid,
 		quit:       str.deregister,
 		connection: make(chan *Event, 64),
@@ -128,26 +137,26 @@ func (str *Stream) addSubscriber(eventid int, url *url.URL, idSubscriber string)
 	return sub
 }
 
-func (str *Stream) removeSubscriber(subscriber *Subscriber) {
+func (str *Stream) removeSubscriber(i int) {
 	atomic.AddInt32(&str.subscriberCount, -1)
-	close(subscriber.connection)
-	if subscriber.removed != nil {
-		subscriber.removed <- struct{}{}
-		close(subscriber.removed)
+	close(str.subscribers[i].connection)
+	if str.subscribers[i].removed != nil {
+		str.subscribers[i].removed <- struct{}{}
+		close(str.subscribers[i].removed)
 	}
-	delete(str.subscribers, subscriber.Id)
+	str.subscribers = append(str.subscribers[:i], str.subscribers[i+1:]...)
 }
 
 func (str *Stream) removeAllSubscribers() {
-	for _, subscriber := range str.subscribers {
-		close(subscriber.connection)
-		if subscriber.removed != nil {
-			subscriber.removed <- struct{}{}
-			close(subscriber.removed)
+	for i := 0; i < len(str.subscribers); i++ {
+		close(str.subscribers[i].connection)
+		if str.subscribers[i].removed != nil {
+			str.subscribers[i].removed <- struct{}{}
+			close(str.subscribers[i].removed)
 		}
 	}
 	atomic.StoreInt32(&str.subscriberCount, 0)
-	str.subscribers = map[string]*Subscriber{}
+	str.subscribers = str.subscribers[:0]
 }
 
 func (str *Stream) getSubscriberCount() int {
